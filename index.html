@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<!--
+  PixelPlayer custom Cast receiver (by Unixity).
+  A CAF (Cast Application Framework) receiver that renders a Now-Playing screen styled to match
+  the PixelPlayer app: album-art card, album-colored animated blob background, an M3-Expressive
+  "squiggle" (wavy) progress bar, rounded type, and per-song theming extracted from the artwork.
+
+  Hosting: deploy this folder over HTTPS (GitHub Pages), register a *Custom Receiver* in the Google
+  Cast Developer Console pointing at the hosted index.html, then put the resulting Application ID in
+  CastOptionsProvider.kt (RECEIVER_APP_ID). See cast-receiver/README.md.
+
+  Note: album-art color extraction reads pixels from a <canvas>, which requires the art server to
+  send `Access-Control-Allow-Origin: *` (added to the app's MediaFileHttpServerService). If that
+  header is missing the receiver still works — it falls back to a neutral PixelPlayer theme.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>PixelPlayer</title>
+
+  <!-- A rounded, geometric font as the closest free stand-in for Google Sans Rounded.
+       To match exactly, drop the real font file into this folder and add an @font-face. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- CAF receiver SDK -->
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+  <style>
+    :root {
+      /* Defaults (neutral PixelPlayer purple) — overwritten per-song from album art. */
+      --bg-0: #161019;
+      --bg-1: #241a2e;
+      --blob-a: #6d4ea8;
+      --blob-b: #b07bd6;
+      --blob-c: #4b3b6b;
+      --primary: #cdb4ff;
+      --on-primary: #2a1c4a;
+      --surface: rgba(255, 255, 255, 0.06);
+      --on-surface: #efe7f7;
+      --on-surface-dim: rgba(239, 231, 247, 0.66);
+      --track: rgba(255, 255, 255, 0.18);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: var(--bg-0);
+      font-family: 'Quicksand', system-ui, sans-serif;
+      color: var(--on-surface);
+    }
+
+    /* The CAF media player hosts the actual <audio> element. We keep it present (so playback
+       works) but invisible — our own DOM is the visible UI. */
+    cast-media-player {
+      position: absolute;
+      inset: 0;
+      --background-color: transparent;
+      --splash-image: none;
+      --theme-hue: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Animated album-colored background. */
+    #bg {
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(120% 120% at 50% 120%, var(--bg-1) 0%, var(--bg-0) 70%);
+      transition: background 900ms ease;
+    }
+    .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.55;
+      will-change: transform;
+      transition: background 900ms ease;
+    }
+    #blob1 { width: 60vw; height: 60vw; left: -10vw; top: -18vw; background: var(--blob-a); animation: float1 18s ease-in-out infinite; }
+    #blob2 { width: 52vw; height: 52vw; right: -12vw; top: 8vh;  background: var(--blob-b); animation: float2 22s ease-in-out infinite; }
+    #blob3 { width: 46vw; height: 46vw; left: 22vw;  bottom: -20vw; background: var(--blob-c); animation: float3 26s ease-in-out infinite; }
+    @keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(6vw, 4vh) scale(1.12); } }
+    @keyframes float2 { 0%,100% { transform: translate(0,0) scale(1.05); } 50% { transform: translate(-5vw, 6vh) scale(0.92); } }
+    @keyframes float3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(4vw, -5vh) scale(1.1); } }
+
+    /* A subtle scrim so text stays legible over the blobs. */
+    #scrim {
+      position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.32) 100%);
+    }
+
+    #stage {
+      position: relative;
+      width: 100%; height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6vw;
+      padding: 7vh 8vw;
+    }
+
+    #artWrap {
+      flex: 0 0 auto;
+      width: 38vh; height: 38vh;
+      max-width: 42vw; max-height: 42vw;
+      border-radius: 28px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      background: var(--surface);
+      transition: transform 600ms cubic-bezier(.2,.7,.2,1);
+    }
+    #artWrap.paused { transform: scale(0.94); }
+    #art { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    #info {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 46vw;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 1.4vh;
+    }
+
+    #title {
+      font-weight: 700;
+      font-size: clamp(28px, 5.2vh, 64px);
+      line-height: 1.08;
+      letter-spacing: -0.5px;
+      color: var(--on-surface);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    #artist {
+      font-weight: 600;
+      font-size: clamp(18px, 2.8vh, 32px);
+      color: var(--on-surface-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #badge {
+      align-self: flex-start;
+      margin-top: 0.6vh;
+      font-size: clamp(12px, 1.6vh, 18px);
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      color: var(--on-primary);
+      background: var(--primary);
+      padding: 0.7vh 1.6vh;
+      border-radius: 999px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 400ms ease, transform 400ms ease, background 900ms ease, color 900ms ease;
+    }
+    #badge.show { opacity: 1; transform: translateY(0); }
+
+    /* Squiggle progress bar */
+    #progress {
+      margin-top: 3vh;
+      display: flex;
+      flex-direction: column;
+      gap: 1vh;
+    }
+    #wave {
+      width: 100%;
+      height: 56px;
+      display: block;
+    }
+    #times {
+      display: flex;
+      justify-content: space-between;
+      font-size: clamp(13px, 1.7vh, 20px);
+      font-weight: 600;
+      color: var(--on-surface-dim);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* App logo / wordmark, top-left, fades when idle splash would show. */
+    #brand {
+      position: absolute;
+      top: 5vh; left: 6vw;
+      display: flex; align-items: center; gap: 12px;
+      font-weight: 700;
+      font-size: clamp(16px, 2.2vh, 26px);
+      color: var(--on-surface);
+      opacity: 0.9;
+    }
+    #brand .dot {
+      width: 1.4vh; height: 1.4vh; min-width: 12px; min-height: 12px;
+      border-radius: 4px;
+      background: var(--primary);
+      transition: background 900ms ease;
+    }
+
+    /* Idle (no media) state */
+    #stage.idle #info, #stage.idle #artWrap { opacity: 0; }
+    #idle {
+      position: absolute; inset: 0;
+      display: none;
+      align-items: center; justify-content: center;
+      flex-direction: column; gap: 2vh;
+      color: var(--on-surface-dim);
+      font-weight: 600;
+      font-size: clamp(20px, 3vh, 36px);
+    }
+    #stage.idle ~ #idle { display: flex; }
+  </style>
+</head>
+<body>
+  <cast-media-player></cast-media-player>
+
+  <div id="bg">
+    <div class="blob" id="blob1"></div>
+    <div class="blob" id="blob2"></div>
+    <div class="blob" id="blob3"></div>
+  </div>
+  <div id="scrim"></div>
+
+  <div id="brand"><span class="dot"></span><span>PixelPlayer</span></div>
+
+  <div id="stage" class="idle">
+    <div id="artWrap"><img id="art" alt="" crossorigin="anonymous" /></div>
+    <div id="info">
+      <div id="title"></div>
+      <div id="artist"></div>
+      <div id="badge"></div>
+      <div id="progress">
+        <canvas id="wave"></canvas>
+        <div id="times"><span id="cur">0:00</span><span id="dur">0:00</span></div>
+      </div>
+    </div>
+  </div>
+  <div id="idle">
+    <span class="dot" style="width:18px;height:18px;border-radius:6px;background:var(--primary);display:inline-block"></span>
+    <span>Ready to play</span>
+  </div>
+
+  <script src="receiver.js"></script>
+</body>
+</html>
