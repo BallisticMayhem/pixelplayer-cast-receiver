@@ -81,12 +81,27 @@
       will-change: transform;
       transition: background 900ms ease;
     }
-    #blob1 { width: 60vw; height: 60vw; left: -10vw; top: -18vw; background: var(--blob-a); animation: float1 18s ease-in-out infinite; }
-    #blob2 { width: 52vw; height: 52vw; right: -12vw; top: 8vh;  background: var(--blob-b); animation: float2 22s ease-in-out infinite; }
-    #blob3 { width: 46vw; height: 46vw; left: 22vw;  bottom: -20vw; background: var(--blob-c); animation: float3 26s ease-in-out infinite; }
-    @keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(6vw, 4vh) scale(1.12); } }
-    @keyframes float2 { 0%,100% { transform: translate(0,0) scale(1.05); } 50% { transform: translate(-5vw, 6vh) scale(0.92); } }
-    @keyframes float3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(4vw, -5vh) scale(1.1); } }
+    #blob1 { width: 60vw; height: 60vw; left: -10vw; top: -18vw; background: var(--blob-a); animation: float1 11s ease-in-out infinite; }
+    #blob2 { width: 52vw; height: 52vw; right: -12vw; top: 8vh;  background: var(--blob-b); animation: float2 13s ease-in-out infinite; }
+    #blob3 { width: 46vw; height: 46vw; left: 22vw;  bottom: -20vw; background: var(--blob-c); animation: float3 15s ease-in-out infinite; }
+    @keyframes float1 {
+      0%,100% { transform: translate(0,0) scale(1); }
+      25% { transform: translate(18vw, 12vh) scale(1.18); }
+      50% { transform: translate(8vw, 26vh) scale(0.95); }
+      75% { transform: translate(22vw, 8vh) scale(1.12); }
+    }
+    @keyframes float2 {
+      0%,100% { transform: translate(0,0) scale(1.05); }
+      25% { transform: translate(-16vw, 14vh) scale(0.86); }
+      50% { transform: translate(-22vw, -8vh) scale(1.15); }
+      75% { transform: translate(-6vw, 18vh) scale(0.92); }
+    }
+    @keyframes float3 {
+      0%,100% { transform: translate(0,0) scale(1); }
+      25% { transform: translate(16vw, -14vh) scale(1.16); }
+      50% { transform: translate(-10vw, -22vh) scale(0.9); }
+      75% { transform: translate(20vw, -6vh) scale(1.1); }
+    }
 
     /* A subtle scrim so text stays legible over the blobs. */
     #scrim {
