@@ -19,6 +19,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>PixelPlayer</title>
 
+  <!-- TEMP on-screen debug: surfaces any receiver error/log on the TV (no chrome://inspect needed).
+       Armed before everything else so it catches CAF/receiver.js load errors. Remove once working. -->
+  <script>
+    (function () {
+      window.__ppLogs = [];
+      window.__ppLog = function (msg, kind) {
+        try {
+          var d = document.getElementById('debug');
+          if (!d) { window.__ppLogs.push([msg, kind]); return; }
+          d.style.display = 'block';
+          var line = document.createElement('div');
+          line.textContent = msg;
+          if (kind === 'err') line.style.color = '#ff8a8a';
+          d.appendChild(line);
+          while (d.childNodes.length > 16) d.removeChild(d.firstChild);
+        } catch (e) {}
+      };
+      window.addEventListener('error', function (e) {
+        window.__ppLog('ERR: ' + (e.message || (e.error && e.error.message) || e.error) +
+          ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), 'err');
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        window.__ppLog('REJECT: ' + (e.reason && (e.reason.message || e.reason)), 'err');
+      });
+    })();
+  </script>
+
   <!-- A rounded, geometric font as the closest free stand-in for Google Sans Rounded.
        To match exactly, drop the real font file into this folder and add an @font-face. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -42,6 +69,19 @@
       --on-surface: #efe7f7;
       --on-surface-dim: rgba(239, 231, 247, 0.66);
       --track: rgba(255, 255, 255, 0.18);
+    }
+
+    /* TEMP on-screen debug overlay (hidden until something logs). Remove once working. */
+    #debug {
+      position: fixed; top: 0; left: 0; right: 0;
+      max-height: 45vh; overflow: hidden;
+      background: rgba(0, 0, 0, 0.72);
+      color: #9effa0;
+      font: 15px/1.45 ui-monospace, monospace;
+      padding: 10px 14px;
+      z-index: 99999;
+      display: none;
+      white-space: pre-wrap;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -231,6 +271,7 @@
   </style>
 </head>
 <body>
+  <div id="debug"></div>
   <cast-media-player></cast-media-player>
 
   <div id="bg">

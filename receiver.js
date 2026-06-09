@@ -15,6 +15,16 @@
 (function () {
   'use strict';
 
+  // ---- TEMP on-screen logging (paired with the #debug overlay in index.html). Remove once working.
+  const log = (m, k) => { try { if (window.__ppLog) window.__ppLog(m, k); } catch (e) {} };
+  // Flush anything the head error-handler queued before #debug existed.
+  try {
+    if (window.__ppLogs && window.__ppLog) {
+      window.__ppLogs.splice(0).forEach((a) => window.__ppLog(a[0], a[1]));
+    }
+  } catch (e) {}
+  log('receiver.js loaded');
+
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
   const PIXELPLAYER_NAMESPACE = 'urn:x-cast:com.theveloper.pixelplay';
@@ -274,8 +284,18 @@
   }
 
   // ---- CAF wiring -----------------------------------------------------------------------------
+  log('CAF: ' + (typeof cast !== 'undefined' && cast.framework ? 'framework present' : 'MISSING'),
+    (typeof cast !== 'undefined' && cast.framework) ? null : 'err');
   const context = cast.framework.CastReceiverContext.getInstance();
   const playerManager = context.getPlayerManager();
+  log('playerManager OK');
+
+  // Surface any media-level error on screen (e.g. a load/network failure).
+  try {
+    playerManager.addEventListener(cast.framework.events.EventType.ERROR, (e) => {
+      log('MEDIA ERR code=' + (e && (e.detailedErrorCode || e.reason || JSON.stringify(e))), 'err');
+    });
+  } catch (e) {}
 
   function refreshFromPlayer() {
     try {
@@ -310,6 +330,8 @@
 
   // LOAD interceptor: read any PixelPlayer customData the sender attaches (theme override, tags).
   playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, (request) => {
+    log('LOAD intercepted: ' + (request && request.media && request.media.contentId
+      ? request.media.contentId.slice(0, 60) : '(no contentId)'));
     try {
       const cd = request && request.customData;
       if (cd && cd.themeSeed && Array.isArray(cd.themeSeed)) applyTheme(cd.themeSeed);
@@ -346,5 +368,7 @@
   options.customNamespaces[PIXELPLAYER_NAMESPACE] = cast.framework.system.MessageType.JSON;
   // Audio app: keep the session alive a bit after pause rather than dropping to idle instantly.
   options.maxInactivity = 3600;
+  log('calling context.start()');
   context.start(options);
+  log('context.start() returned');
 })();
