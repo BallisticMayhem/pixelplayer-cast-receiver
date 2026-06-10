@@ -23,7 +23,9 @@
       window.__ppLogs.splice(0).forEach((a) => window.__ppLog(a[0], a[1]));
     }
   } catch (e) {}
-  log('receiver.js loaded');
+  // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
+  // proves which copy the (aggressively caching) cast platform actually loaded.
+  log('receiver.js v3 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -311,64 +313,96 @@
     try { playerManager.addEventListener(type, refreshFromPlayer); } catch (e) {}
   });
 
-  playerManager.addEventListener(Ev.PLAYER_STATE_CHANGED, () => {
-    const state = playerManager.getPlayerState();
-    const PS = cast.framework.messages.PlayerState;
-    wave.playing = (state === PS.PLAYING);
-    el.artWrap.classList.toggle('paused', state === PS.PAUSED);
-  });
+  try {
+    playerManager.addEventListener(Ev.PLAYER_STATE_CHANGED, () => {
+      const state = playerManager.getPlayerState();
+      const PS = cast.framework.messages.PlayerState;
+      wave.playing = (state === PS.PLAYING);
+      el.artWrap.classList.toggle('paused', state === PS.PAUSED);
+    });
 
-  playerManager.addEventListener(Ev.TIME_UPDATE, () => {
-    const cur = playerManager.getCurrentTimeSec();
-    const dur = playerManager.getDurationSec();
-    el.cur.textContent = fmtTime(cur);
-    if (isFinite(dur) && dur > 0) {
-      el.dur.textContent = fmtTime(dur);
-      wave.progress = clamp(cur / dur, 0, 1);
-    }
-  });
+    playerManager.addEventListener(Ev.TIME_UPDATE, () => {
+      const cur = playerManager.getCurrentTimeSec();
+      const dur = playerManager.getDurationSec();
+      el.cur.textContent = fmtTime(cur);
+      if (isFinite(dur) && dur > 0) {
+        el.dur.textContent = fmtTime(dur);
+        wave.progress = clamp(cur / dur, 0, 1);
+      }
+    });
+  } catch (e) {
+    log('player listeners failed: ' + (e && e.message), 'err');
+  }
 
   // LOAD interceptor: read any PixelPlayer customData the sender attaches (theme override, tags).
-  playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, (request) => {
-    log('LOAD intercepted: ' + (request && request.media && request.media.contentId
-      ? request.media.contentId.slice(0, 60) : '(no contentId)'));
-    try {
-      const cd = request && request.customData;
-      if (cd && cd.themeSeed && Array.isArray(cd.themeSeed)) applyTheme(cd.themeSeed);
-      if (cd && cd.badge) showBadge(cd.badge); else showBadge(null);
-    } catch (e) {}
-    return request;
-  });
-
-  // ---- Phone -> TV custom control channel -----------------------------------------------------
-  // Ready for future features (e.g. push fullscreen lyrics from the phone). The sender emits
-  // JSON on PIXELPLAYER_NAMESPACE; we react here. No-op until the app sends messages.
-  context.addCustomMessageListener(PIXELPLAYER_NAMESPACE, (event) => {
-    const msg = event.data || {};
-    switch (msg.type) {
-      case 'theme':
-        if (Array.isArray(msg.seed)) applyTheme(msg.seed);
-        break;
-      case 'badge':
-        showBadge(msg.text || null);
-        break;
-      // case 'lyrics': // TODO(phone->TV lyrics): render msg.lines + msg.activeIndex overlay.
-      default:
-        break;
-    }
-  });
+  try {
+    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, (request) => {
+      log('LOAD intercepted: ' + (request && request.media && request.media.contentId
+        ? request.media.contentId.slice(0, 60) : '(no contentId)'));
+      try {
+        const cd = request && request.customData;
+        if (cd && cd.themeSeed && Array.isArray(cd.themeSeed)) applyTheme(cd.themeSeed);
+        if (cd && cd.badge) showBadge(cd.badge); else showBadge(null);
+      } catch (e) {}
+      return request;
+    });
+  } catch (e) {
+    log('LOAD interceptor failed: ' + (e && e.message), 'err');
+  }
 
   // ---- Start ----------------------------------------------------------------------------------
-  sizeWave();
-  applyTheme(NEUTRAL.seed);
-  requestAnimationFrame(tick);
+  try {
+    sizeWave();
+    applyTheme(NEUTRAL.seed);
+    requestAnimationFrame(tick);
+  } catch (e) {
+    log('UI init failed: ' + (e && e.message), 'err');
+  }
 
-  const options = new cast.framework.CastReceiverOptions();
-  options.customNamespaces = {};
-  options.customNamespaces[PIXELPLAYER_NAMESPACE] = cast.framework.system.MessageType.JSON;
-  // Audio app: keep the session alive a bit after pause rather than dropping to idle instantly.
-  options.maxInactivity = 3600;
+  // Build the receiver options defensively: if anything here throws (options constructor and the
+  // MessageType enum live in the cross-origin CAF script), fall back to a bare start() — a running
+  // receiver without the custom channel beats a dead one that times the launch out (error 2473).
+  let options;
+  try {
+    options = new cast.framework.CastReceiverOptions();
+    options.customNamespaces = {};
+    options.customNamespaces[PIXELPLAYER_NAMESPACE] = cast.framework.system.MessageType.JSON;
+    // Audio app: keep the session alive a bit after pause rather than dropping to idle instantly.
+    options.maxInactivity = 3600;
+  } catch (e) {
+    log('options failed (' + (e && e.message) + '), starting bare', 'err');
+    options = undefined;
+  }
   log('calling context.start()');
-  context.start(options);
-  log('context.start() returned');
+  try {
+    if (options) context.start(options); else context.start();
+    log('context.start() returned');
+  } catch (e) {
+    log('START FAILED: ' + (e && e.message), 'err');
+  }
+
+  // ---- Phone -> TV custom control channel -----------------------------------------------------
+  // Registered AFTER start(): some CAF builds reject adding custom listeners pre-start, which
+  // would throw, kill init before start() ran, and time the whole launch out (sender error 2473).
+  // Ready for future features (e.g. push fullscreen lyrics from the phone). The sender emits
+  // JSON on PIXELPLAYER_NAMESPACE; we react here. No-op until the app sends messages.
+  try {
+    context.addCustomMessageListener(PIXELPLAYER_NAMESPACE, (event) => {
+      const msg = event.data || {};
+      switch (msg.type) {
+        case 'theme':
+          if (Array.isArray(msg.seed)) applyTheme(msg.seed);
+          break;
+        case 'badge':
+          showBadge(msg.text || null);
+          break;
+        // case 'lyrics': // TODO(phone->TV lyrics): render msg.lines + msg.activeIndex overlay.
+        default:
+          break;
+      }
+    });
+    log('custom channel ready');
+  } catch (e) {
+    log('custom listener failed: ' + (e && e.message), 'err');
+  }
 })();
