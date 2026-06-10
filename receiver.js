@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v3 loaded');
+  log('receiver.js v4 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -279,7 +279,26 @@
     ctx.fill();
   }
 
+  let lastCurTxt = '', lastDurTxt = '';
   function tick() {
+    // Poll playback state every frame instead of framework events: PLAYER_STATE_CHANGED doesn't
+    // exist in this CAF build (addEventListener(undefined) used to kill init before start()),
+    // and per-frame polling also drives the squiggle smoother than 1 Hz TIME_UPDATE events.
+    try {
+      const PS = cast.framework.messages.PlayerState;
+      const state = playerManager.getPlayerState();
+      wave.playing = (state === PS.PLAYING);
+      el.artWrap.classList.toggle('paused', state === PS.PAUSED);
+      const cur = playerManager.getCurrentTimeSec();
+      const dur = playerManager.getDurationSec();
+      const curTxt = fmtTime(cur);
+      if (curTxt !== lastCurTxt) { lastCurTxt = curTxt; el.cur.textContent = curTxt; }
+      if (isFinite(dur) && dur > 0) {
+        const durTxt = fmtTime(dur);
+        if (durTxt !== lastDurTxt) { lastDurTxt = durTxt; el.dur.textContent = durTxt; }
+        wave.progress = clamp(cur / dur, 0, 1);
+      }
+    } catch (e) { /* no media / not started yet */ }
     if (wave.playing) wave.phase += 0.12; // flow the wave while playing
     drawWave();
     requestAnimationFrame(tick);
@@ -313,26 +332,8 @@
     try { playerManager.addEventListener(type, refreshFromPlayer); } catch (e) {}
   });
 
-  try {
-    playerManager.addEventListener(Ev.PLAYER_STATE_CHANGED, () => {
-      const state = playerManager.getPlayerState();
-      const PS = cast.framework.messages.PlayerState;
-      wave.playing = (state === PS.PLAYING);
-      el.artWrap.classList.toggle('paused', state === PS.PAUSED);
-    });
-
-    playerManager.addEventListener(Ev.TIME_UPDATE, () => {
-      const cur = playerManager.getCurrentTimeSec();
-      const dur = playerManager.getDurationSec();
-      el.cur.textContent = fmtTime(cur);
-      if (isFinite(dur) && dur > 0) {
-        el.dur.textContent = fmtTime(dur);
-        wave.progress = clamp(cur / dur, 0, 1);
-      }
-    });
-  } catch (e) {
-    log('player listeners failed: ' + (e && e.message), 'err');
-  }
+  // (Player state + time are polled in the tick() render loop — see above — because
+  // PLAYER_STATE_CHANGED isn't a valid EventType in this CAF build.)
 
   // LOAD interceptor: read any PixelPlayer customData the sender attaches (theme override, tags).
   try {
