@@ -104,6 +104,12 @@
       top: -200vh;
       width: 100vw;
       height: 100vh;
+      /* The default UI in the shadow DOM positions itself FIXED to the viewport, escaping the
+         off-screen host box (seen on the TV). A non-none transform makes this element the
+         containing block for fixed descendants, trapping them in the off-screen box; contain:
+         paint additionally clips every descendant's painting to that box. */
+      transform: translateZ(0);
+      contain: paint;
       opacity: 0;
       pointer-events: none;
       z-index: -1;
@@ -311,6 +317,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=7"></script>
+  <script src="receiver.js?v=8"></script>
 </body>
 </html>

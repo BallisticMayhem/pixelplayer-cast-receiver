@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v7 loaded');
+  log('receiver.js v8 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -405,5 +405,30 @@
     log('custom channel ready');
   } catch (e) {
     log('custom listener failed: ' + (e && e.message), 'err');
+  }
+
+  // ---- Default-UI sweep (heavy hammer) --------------------------------------------------------
+  // The framework can inject its stock now-playing UI into the page outside the (off-screened)
+  // <cast-media-player> host. Hide any direct body child that isn't ours and LOG what was hidden
+  // — the log doubles as diagnosis of what the framework actually injects on this device.
+  // display:none on media elements does not stop audio, so this is safe for playback.
+  try {
+    const allowedIds = new Set(['debug', 'bg', 'scrim', 'brand', 'stage', 'idle']);
+    const sweep = () => {
+      const children = document.body.children;
+      for (let i = 0; i < children.length; i++) {
+        const n = children[i];
+        const tag = (n.tagName || '').toLowerCase();
+        if (tag === 'script' || tag === 'cast-media-player') continue; // player must stay for playback
+        if (allowedIds.has(n.id)) continue;
+        if (n.style.display === 'none') continue; // already swept
+        n.style.display = 'none';
+        log('hid injected <' + tag + (n.id ? '#' + n.id : '') + (n.className ? ' .' + n.className : '') + '>');
+      }
+    };
+    sweep();
+    setInterval(sweep, 2000); // the framework may inject later (e.g. on first LOAD)
+  } catch (e) {
+    log('sweep failed: ' + (e && e.message), 'err');
   }
 })();
