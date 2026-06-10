@@ -94,13 +94,10 @@
       color: var(--on-surface);
     }
 
-    /* The CAF media player hosts the actual <audio> element. Playback works fine with it
-       display:none (audio-only app) — and display:none is REQUIRED, not just opacity:0: its
-       internal default-UI layers carry their own z-index and otherwise paint Google's stock
-       now-playing screen over our custom DOM (seen on the TV). */
-    cast-media-player {
-      display: none !important;
-    }
+    /* NOTE: there is deliberately NO <cast-media-player> element on this page. For audio-only
+       receivers the framework plays media without it, and any presence of the element makes CAF
+       render Google's stock now-playing UI over our custom DOM (styling it opacity:0 or even
+       display:none did NOT suppress it on the TV — the default UI layers paint regardless). */
 
     /* Animated album-colored background. Explicit z-indexes on all our layers so framework-
        injected elements (default UI internals) can't paint above the custom DOM. */
@@ -274,7 +271,6 @@
 </head>
 <body>
   <div id="debug"></div>
-  <cast-media-player></cast-media-player>
 
   <div id="bg">
     <div class="blob" id="blob1"></div>
@@ -304,6 +300,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=5"></script>
+  <script src="receiver.js?v=6"></script>
 </body>
 </html>
