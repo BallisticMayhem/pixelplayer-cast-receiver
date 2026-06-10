@@ -94,10 +94,20 @@
       color: var(--on-surface);
     }
 
-    /* NOTE: there is deliberately NO <cast-media-player> element on this page. For audio-only
-       receivers the framework plays media without it, and any presence of the element makes CAF
-       render Google's stock now-playing UI over our custom DOM (styling it opacity:0 or even
-       display:none did NOT suppress it on the TV — the default UI layers paint regardless). */
+    /* The CAF media player hosts the actual media element — REQUIRED for playback (removing it
+       entirely makes every LOAD fail with detailed error 905 LOAD_FAILED). But when visible it
+       draws Google's stock now-playing UI over our custom DOM, so we park it OFF-SCREEN: it keeps
+       a real rendered box (playback fine) that can never appear in the viewport. */
+    cast-media-player {
+      position: fixed;
+      left: -200vw;
+      top: -200vh;
+      width: 100vw;
+      height: 100vh;
+      opacity: 0;
+      pointer-events: none;
+      z-index: -1;
+    }
 
     /* Animated album-colored background. Explicit z-indexes on all our layers so framework-
        injected elements (default UI internals) can't paint above the custom DOM. */
@@ -271,6 +281,7 @@
 </head>
 <body>
   <div id="debug"></div>
+  <cast-media-player></cast-media-player>
 
   <div id="bg">
     <div class="blob" id="blob1"></div>
@@ -300,6 +311,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=6"></script>
+  <script src="receiver.js?v=7"></script>
 </body>
 </html>
