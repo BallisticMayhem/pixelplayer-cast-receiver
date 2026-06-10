@@ -94,21 +94,19 @@
       color: var(--on-surface);
     }
 
-    /* The CAF media player hosts the actual <audio> element. We keep it present (so playback
-       works) but invisible — our own DOM is the visible UI. */
+    /* The CAF media player hosts the actual <audio> element. Playback works fine with it
+       display:none (audio-only app) — and display:none is REQUIRED, not just opacity:0: its
+       internal default-UI layers carry their own z-index and otherwise paint Google's stock
+       now-playing screen over our custom DOM (seen on the TV). */
     cast-media-player {
-      position: absolute;
-      inset: 0;
-      --background-color: transparent;
-      --splash-image: none;
-      --theme-hue: 0;
-      opacity: 0;
-      pointer-events: none;
+      display: none !important;
     }
 
-    /* Animated album-colored background. */
+    /* Animated album-colored background. Explicit z-indexes on all our layers so framework-
+       injected elements (default UI internals) can't paint above the custom DOM. */
     #bg {
       position: absolute; inset: 0;
+      z-index: 1;
       background:
         radial-gradient(120% 120% at 50% 120%, var(--bg-1) 0%, var(--bg-0) 70%);
       transition: background 900ms ease;
@@ -146,10 +144,12 @@
     /* A subtle scrim so text stays legible over the blobs. */
     #scrim {
       position: absolute; inset: 0;
+      z-index: 2;
       background: linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.32) 100%);
     }
 
     #stage {
+      z-index: 3;
       position: relative;
       width: 100%; height: 100%;
       display: flex;
@@ -242,6 +242,7 @@
     /* App logo / wordmark, top-left, fades when idle splash would show. */
     #brand {
       position: absolute;
+      z-index: 4;
       top: 5vh; left: 6vw;
       display: flex; align-items: center; gap: 12px;
       font-weight: 700;
@@ -260,6 +261,7 @@
     #stage.idle #info, #stage.idle #artWrap { opacity: 0; }
     #idle {
       position: absolute; inset: 0;
+      z-index: 3;
       display: none;
       align-items: center; justify-content: center;
       flex-direction: column; gap: 2vh;
@@ -302,6 +304,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=4"></script>
+  <script src="receiver.js?v=5"></script>
 </body>
 </html>
