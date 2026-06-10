@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v8 loaded');
+  log('receiver.js v9 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -234,8 +234,8 @@
 
   function drawWave() {
     const ctx = wave.ctx;
-    const W = wave.w, H = wave.h;
-    if (W === 0) { sizeWave(); }
+    let W = wave.w, H = wave.h;
+    if (W === 0) { sizeWave(); W = wave.w; H = wave.h; } // re-read, else we draw one stale frame
     ctx.clearRect(0, 0, W, H);
 
     const cy = H / 2;
@@ -279,7 +279,7 @@
     ctx.fill();
   }
 
-  let lastCurTxt = '', lastDurTxt = '';
+  let lastCurTxt = '', lastDurTxt = '', lastPollLogMs = 0;
   function tick() {
     // Poll playback state every frame instead of framework events: PLAYER_STATE_CHANGED doesn't
     // exist in this CAF build (addEventListener(undefined) used to kill init before start()),
@@ -290,7 +290,21 @@
       wave.playing = (state === PS.PLAYING);
       el.artWrap.classList.toggle('paused', state === PS.PAUSED);
       const cur = playerManager.getCurrentTimeSec();
-      const dur = playerManager.getDurationSec();
+      let dur = playerManager.getDurationSec();
+      if (!isFinite(dur) || dur <= 0) {
+        // Some loads report no duration on the player clock — fall back to the media info
+        // (the sender sets streamDuration explicitly).
+        const mi = playerManager.getMediaInformation();
+        if (mi && isFinite(mi.duration) && mi.duration > 0) dur = mi.duration;
+      }
+      // TEMP diagnostic: live poll readout every ~4s so a frozen squiggle tells us which
+      // value (state / position / duration) the player is failing to report.
+      const nowMs = Date.now();
+      if (nowMs - lastPollLogMs > 4000) {
+        lastPollLogMs = nowMs;
+        log('poll: state=' + state + ' cur=' + (isFinite(cur) ? cur.toFixed(1) : cur) +
+          ' dur=' + (isFinite(dur) ? dur.toFixed(1) : dur));
+      }
       const curTxt = fmtTime(cur);
       if (curTxt !== lastCurTxt) { lastCurTxt = curTxt; el.cur.textContent = curTxt; }
       if (isFinite(dur) && dur > 0) {

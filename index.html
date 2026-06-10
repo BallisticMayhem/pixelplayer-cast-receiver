@@ -115,6 +115,15 @@
       z-index: -1;
     }
 
+    /* The framework injects its default UI as SEPARATE body siblings (this device injects
+       <touch-controls> plus a bare <div>) — not inside <cast-media-player> at all. The JS sweep
+       hides them but only every 2s (they flashed); CSS applies the instant they're inserted.
+       The universal rule hides ANY unexpected body child while allowlisting all of ours. */
+    touch-controls { display: none !important; }
+    body > *:not(#debug):not(#bg):not(#scrim):not(#brand):not(#stage):not(#idle):not(cast-media-player):not(script) {
+      display: none !important;
+    }
+
     /* Animated album-colored background. Explicit z-indexes on all our layers so framework-
        injected elements (default UI internals) can't paint above the custom DOM. */
     #bg {
@@ -317,6 +326,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=8"></script>
+  <script src="receiver.js?v=9"></script>
 </body>
 </html>
