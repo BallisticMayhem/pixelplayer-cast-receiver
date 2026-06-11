@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v12 loaded');
+  log('receiver.js v13 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -43,6 +43,7 @@
     cur: document.getElementById('cur'),
     dur: document.getElementById('dur'),
     wave: document.getElementById('wave'),
+    songInfo: document.getElementById('songInfo'),
   };
 
   // ---- Small helpers --------------------------------------------------------------------------
@@ -128,12 +129,47 @@
     setVar('--on-surface', rgb(onSurface));
     setVar('--on-surface-dim', rgba(onSurface, 0.66));
     setVar('--track', rgba(onSurface, 0.18));
+    // Seekbar pill: a darker tone of the album hue. File-info pill mirrors the phone's chip
+    // (onPrimary-ish background, primary text).
+    setVar('--seek-pill', rgba(hslToRgb(h, clamp(sat * 0.5, 0.15, 0.45), 0.12), 0.85));
+    setVar('--pill-bg', rgba(onPrimary, 0.85));
+    setVar('--pill-fg', rgb(primary));
 
     theme.primary = primary;
     theme.track = mix(onSurface, bg0, 0.5);
   }
 
   const theme = { primary: NEUTRAL.seed, track: [120, 120, 130] };
+
+  // True once the phone has pushed its real Material You palette over the custom channel —
+  // from then on, art-based colour extraction stays off (the pushed palette is exact; the
+  // extraction is only an approximation for senders that don't push).
+  let paletteDriven = false;
+
+  // Apply the EXACT palette the phone computed (matches its fullscreen-lyrics blob recipe:
+  // blobs are primary/secondary/primaryContainer lerped slightly toward surface).
+  function applyPushedPalette(p) {
+    try {
+      const surface = p.surface, onSurface = p.onSurface;
+      const primary = p.primary, onPrimary = p.onPrimary;
+      setVar('--bg-0', rgb(surface));
+      setVar('--bg-1', rgb(mix(p.primaryContainer, surface, 0.6)));
+      setVar('--blob-a', rgb(mix(primary, surface, 0.10)));
+      setVar('--blob-b', rgb(mix(p.secondary, surface, 0.10)));
+      setVar('--blob-c', rgb(mix(p.primaryContainer, surface, 0.05)));
+      setVar('--primary', rgb(primary));
+      setVar('--on-primary', rgb(onPrimary));
+      setVar('--on-surface', rgb(onSurface));
+      setVar('--on-surface-dim', rgba(onSurface, 0.66));
+      setVar('--track', rgba(onSurface, 0.18));
+      setVar('--seek-pill', rgba(p.surfaceContainerHigh || mix(surface, [0, 0, 0], 0.2), 0.9));
+      setVar('--pill-bg', rgba(onPrimary, 0.85));
+      setVar('--pill-fg', rgb(primary));
+      theme.primary = primary;
+      theme.track = mix(onSurface, surface, 0.5);
+      paletteDriven = true;
+    } catch (e) {}
+  }
 
   // Extract a vivid dominant colour from the (CORS-enabled) album art via an offscreen canvas.
   function extractSeedFromArt(img) {
@@ -167,18 +203,6 @@
     }
   }
 
-  function themeFromArt(url) {
-    if (!url) { applyTheme(NEUTRAL.seed); return; }
-    const probe = new Image();
-    probe.crossOrigin = 'anonymous';
-    probe.onload = () => {
-      const seed = extractSeedFromArt(probe);
-      applyTheme(seed || NEUTRAL.seed);
-    };
-    probe.onerror = () => applyTheme(NEUTRAL.seed);
-    probe.src = url;
-  }
-
   // ---- Metadata sync --------------------------------------------------------------------------
   let currentArtUrl = null;
 
@@ -201,9 +225,57 @@
 
     if (meta.art && meta.art !== currentArtUrl) {
       currentArtUrl = meta.art;
-      el.art.src = meta.art;
-      themeFromArt(meta.art);
+      // Single-fetch art swap: load once via a probe (also used for colour extraction), KEEP the
+      // previous art visible until the new one is ready, then swap from cache (instant) with a
+      // bouncy pop. Avoids the blank gap + double fetch the old direct-src approach had.
+      const url = meta.art;
+      const probe = new Image();
+      probe.crossOrigin = 'anonymous';
+      probe.onload = () => {
+        if (currentArtUrl !== url) return; // superseded by a newer track
+        el.art.src = url; // same-cache fetch -> instant
+        el.artWrap.classList.remove('pop');
+        void el.artWrap.offsetWidth; // restart the animation
+        el.artWrap.classList.add('pop');
+        if (!paletteDriven) { // pushed phone palette is exact; extraction is the fallback
+          const seed = extractSeedFromArt(probe);
+          applyTheme(seed || NEUTRAL.seed);
+        }
+      };
+      probe.onerror = () => {
+        if (currentArtUrl !== url) return;
+        el.art.src = url;
+        if (!paletteDriven) applyTheme(NEUTRAL.seed);
+      };
+      probe.src = url;
     }
+  }
+
+  // Song file-info pill (sample rate • bitrate • format) from the sender's MediaInfo customData.
+  function updateSongInfo(media) {
+    try {
+      const cd = media && media.customData;
+      const parts = [];
+      if (cd) {
+        const sr = Number(cd.sampleRateHz);
+        if (isFinite(sr) && sr > 0) parts.push((sr / 1000).toFixed(1) + ' kHz');
+        let br = Number(cd.bitrateBps);
+        if (isFinite(br) && br > 0) {
+          if (br > 10000) br = Math.round(br / 1000); // bps -> kbps
+          parts.push(br + ' kbps');
+        }
+        if (cd.format) parts.push(String(cd.format));
+      }
+      if (!parts.length && media && media.contentType) {
+        parts.push(media.contentType.split('/').pop().replace(/^x-/, '').toUpperCase());
+      }
+      if (parts.length) {
+        el.songInfo.textContent = parts.join(' • ');
+        el.songInfo.style.display = 'inline-block';
+      } else {
+        el.songInfo.style.display = 'none';
+      }
+    } catch (e) {}
   }
 
   function showBadge(text) {
@@ -221,6 +293,7 @@
     phase: 0,
     progress: 0,
     playing: false,
+    amp: 0, // 0..1 amplitude envelope: eases to 1 while playing, to 0 (flat line) while paused
   };
 
   function sizeWave() {
@@ -258,7 +331,8 @@
     ctx.lineWidth = lineW;
     for (let x = pad; x <= thumbX; x += 3) {
       const distToThumb = thumbX - x;
-      const amp = amplitude * clamp(distToThumb / taper, 0, 1); // flatten near the thumb (M3 style)
+      // Taper near the thumb (M3 style) and scale by the pause envelope (flattens when paused).
+      const amp = amplitude * clamp(distToThumb / taper, 0, 1) * wave.amp;
       const y = cy + Math.sin((x - pad) * k + wave.phase) * amp;
       if (x === pad) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
@@ -321,9 +395,12 @@
       }
     } catch (e) { /* no media / not started yet */ }
     // Full-rate (60fps) squiggle — affordable now that the blur(80px) blobs are gone (they were
-    // the real GPU hog). Still skips redraws entirely while paused with nothing changed.
-    if (wave.playing || wave.progress !== lastDrawnProgress) {
+    // the real GPU hog). Still skips redraws entirely while paused with the wave settled flat.
+    const ampTarget = wave.playing ? 1 : 0;
+    if (wave.playing || wave.progress !== lastDrawnProgress || wave.amp !== ampTarget) {
       if (wave.playing) wave.phase += 0.12; // flow the wave while playing
+      wave.amp += (ampTarget - wave.amp) * 0.07; // ease the flatten/rise on pause/play
+      if (Math.abs(ampTarget - wave.amp) < 0.01) wave.amp = ampTarget;
       drawWave();
       lastDrawnProgress = wave.progress;
     }
@@ -348,6 +425,7 @@
     try {
       const media = playerManager.getMediaInformation();
       applyMetadata(readMetadata(media));
+      updateSongInfo(media);
       const dur = playerManager.getDurationSec();
       if (isFinite(dur) && dur > 0) el.dur.textContent = fmtTime(dur);
     } catch (e) { /* ignore until media is ready */ }
@@ -427,7 +505,8 @@
       const msg = event.data || {};
       switch (msg.type) {
         case 'theme':
-          if (Array.isArray(msg.seed)) applyTheme(msg.seed);
+          if (msg.palette) applyPushedPalette(msg.palette);
+          else if (Array.isArray(msg.seed)) applyTheme(msg.seed);
           break;
         case 'badge':
           showBadge(msg.text || null);
