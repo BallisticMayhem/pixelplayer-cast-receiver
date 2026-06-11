@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v13 loaded');
+  log('receiver.js v14 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -251,30 +251,42 @@
     }
   }
 
-  // Song file-info pill (sample rate • bitrate • format) from the sender's MediaInfo customData.
+  // Song file-info pill (sample rate • bitrate • format). Live values pushed from the phone over
+  // the custom channel win (the phone probes the actual file); the per-item LOAD customData (what
+  // the library scan knew — often just the format) is the fallback until a push arrives.
+  let pushedSongInfo = null; // parts array from the latest phone push; cleared on every new LOAD
+
+  function buildInfoParts(src) {
+    const parts = [];
+    const sr = Number(src.sampleRateHz);
+    if (isFinite(sr) && sr > 0) parts.push((sr / 1000).toFixed(1) + ' kHz');
+    let br = Number(src.bitrateBps);
+    if (isFinite(br) && br > 0) {
+      if (br > 10000) br = Math.round(br / 1000); // bps -> kbps
+      parts.push(br + ' kbps');
+    }
+    if (src.format) parts.push(String(src.format));
+    return parts;
+  }
+
+  function renderSongInfo(parts) {
+    if (parts && parts.length) {
+      el.songInfo.textContent = parts.join(' • ');
+      el.songInfo.style.display = 'inline-block';
+    } else {
+      el.songInfo.style.display = 'none';
+    }
+  }
+
   function updateSongInfo(media) {
     try {
+      if (pushedSongInfo) { renderSongInfo(pushedSongInfo); return; }
       const cd = media && media.customData;
-      const parts = [];
-      if (cd) {
-        const sr = Number(cd.sampleRateHz);
-        if (isFinite(sr) && sr > 0) parts.push((sr / 1000).toFixed(1) + ' kHz');
-        let br = Number(cd.bitrateBps);
-        if (isFinite(br) && br > 0) {
-          if (br > 10000) br = Math.round(br / 1000); // bps -> kbps
-          parts.push(br + ' kbps');
-        }
-        if (cd.format) parts.push(String(cd.format));
-      }
+      let parts = cd ? buildInfoParts(cd) : [];
       if (!parts.length && media && media.contentType) {
-        parts.push(media.contentType.split('/').pop().replace(/^x-/, '').toUpperCase());
+        parts = [media.contentType.split('/').pop().replace(/^x-/, '').toUpperCase()];
       }
-      if (parts.length) {
-        el.songInfo.textContent = parts.join(' • ');
-        el.songInfo.style.display = 'inline-block';
-      } else {
-        el.songInfo.style.display = 'none';
-      }
+      renderSongInfo(parts);
     } catch (e) {}
   }
 
@@ -399,7 +411,7 @@
     const ampTarget = wave.playing ? 1 : 0;
     if (wave.playing || wave.progress !== lastDrawnProgress || wave.amp !== ampTarget) {
       if (wave.playing) wave.phase += 0.12; // flow the wave while playing
-      wave.amp += (ampTarget - wave.amp) * 0.07; // ease the flatten/rise on pause/play
+      wave.amp += (ampTarget - wave.amp) * 0.16; // ease the flatten/rise on pause/play
       if (Math.abs(ampTarget - wave.amp) < 0.01) wave.amp = ampTarget;
       drawWave();
       lastDrawnProgress = wave.progress;
@@ -449,6 +461,7 @@
         let d = request && request.media && request.media.duration;
         if (isFinite(d) && d > 36000) d = d / 1000;
         loadedDurationSec = (isFinite(d) && d > 0) ? d : 0;
+        pushedSongInfo = null; // new track: stale pushed file-info no longer applies
         log('LOAD intercepted: dur=' + loadedDurationSec.toFixed(1) + 's ' +
           (request && request.media && request.media.contentId
             ? request.media.contentId.slice(0, 48) : '(no contentId)'));
@@ -508,6 +521,12 @@
           if (msg.palette) applyPushedPalette(msg.palette);
           else if (Array.isArray(msg.seed)) applyTheme(msg.seed);
           break;
+        case 'songinfo': {
+          const parts = buildInfoParts(msg);
+          pushedSongInfo = parts.length ? parts : null;
+          if (pushedSongInfo) renderSongInfo(pushedSongInfo);
+          break;
+        }
         case 'badge':
           showBadge(msg.text || null);
           break;

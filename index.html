@@ -191,9 +191,13 @@
       max-width: 42vw; max-height: 42vw;
       border-radius: 28px;
       overflow: hidden;
-      box-shadow: 0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      /* Shadow blur kept modest: scaling a layer with a huge blurred shadow lagged the TV GPU. */
+      box-shadow: 0 16px 36px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05) inset;
       background: var(--surface);
       transition: transform 600ms cubic-bezier(.2,.7,.2,1);
+      /* Own compositing layer: the play/pause scale + track-change pop animate a cached texture
+         instead of re-rasterizing the rounded clip + shadow every frame (which visibly lagged). */
+      will-change: transform;
     }
     #artWrap.paused { transform: scale(0.94); }
     /* Bouncy pop when the album art changes track (class re-applied from JS on art swap). */
@@ -357,6 +361,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=13"></script>
+  <script src="receiver.js?v=14"></script>
 </body>
 </html>
