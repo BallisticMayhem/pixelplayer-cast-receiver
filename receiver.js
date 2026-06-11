@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v9 loaded');
+  log('receiver.js v10 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -244,7 +244,7 @@
     const usableW = W - pad * 2;
     const thumbX = pad + clamp(wave.progress, 0, 1) * usableW;
 
-    const amplitude = 5.5;          // wave height
+    const amplitude = 3.5;          // wave height
     const wavelength = 30;          // px per cycle
     const k = (Math.PI * 2) / wavelength;
     const taper = 26;               // px over which the wave flattens into the thumb
@@ -279,31 +279,37 @@
     ctx.fill();
   }
 
+  // Duration of the current item as the SENDER declared it in the LOAD request. The phone
+  // transcodes/streams chunked audio, so the media element reports duration=Infinity once
+  // playing — this captured value is the only reliable total. Set by the LOAD interceptor.
+  let loadedDurationSec = 0;
+
   let lastCurTxt = '', lastDurTxt = '', lastPollLogMs = 0;
+  let lastCurSeen = -1, lastCurChangeMs = 0;
   function tick() {
-    // Poll playback state every frame instead of framework events: PLAYER_STATE_CHANGED doesn't
-    // exist in this CAF build (addEventListener(undefined) used to kill init before start()),
-    // and per-frame polling also drives the squiggle smoother than 1 Hz TIME_UPDATE events.
+    // Poll playback every frame. getPlayerState() is unreliable/laggy on this device (it read
+    // PAUSED while audibly playing and vice versa), so "playing" is derived from whether the
+    // position clock is actually advancing — that can't lie.
     try {
-      const PS = cast.framework.messages.PlayerState;
-      const state = playerManager.getPlayerState();
-      wave.playing = (state === PS.PLAYING);
-      el.artWrap.classList.toggle('paused', state === PS.PAUSED);
       const cur = playerManager.getCurrentTimeSec();
+      const nowMs = Date.now();
+      if (cur !== lastCurSeen) { lastCurSeen = cur; lastCurChangeMs = nowMs; }
+      const moving = isFinite(cur) && cur > 0 && (nowMs - lastCurChangeMs) < 800;
+      wave.playing = moving;
+      el.artWrap.classList.toggle('paused', !moving && cur > 0);
+
       let dur = playerManager.getDurationSec();
       if (!isFinite(dur) || dur <= 0) {
-        // Some loads report no duration on the player clock — fall back to the media info
-        // (the sender sets streamDuration explicitly).
         const mi = playerManager.getMediaInformation();
         if (mi && isFinite(mi.duration) && mi.duration > 0) dur = mi.duration;
       }
-      // TEMP diagnostic: live poll readout every ~4s so a frozen squiggle tells us which
-      // value (state / position / duration) the player is failing to report.
-      const nowMs = Date.now();
+      if ((!isFinite(dur) || dur <= 0) && loadedDurationSec > 0) dur = loadedDurationSec;
+
+      // TEMP diagnostic: live poll readout every ~4s.
       if (nowMs - lastPollLogMs > 4000) {
         lastPollLogMs = nowMs;
-        log('poll: state=' + state + ' cur=' + (isFinite(cur) ? cur.toFixed(1) : cur) +
-          ' dur=' + (isFinite(dur) ? dur.toFixed(1) : dur));
+        log('poll: moving=' + moving + ' cur=' + (isFinite(cur) ? cur.toFixed(1) : cur) +
+          ' dur=' + (isFinite(dur) ? dur.toFixed(1) : dur) + ' loadDur=' + loadedDurationSec.toFixed(1));
       }
       const curTxt = fmtTime(cur);
       if (curTxt !== lastCurTxt) { lastCurTxt = curTxt; el.cur.textContent = curTxt; }
@@ -352,8 +358,17 @@
   // LOAD interceptor: read any PixelPlayer customData the sender attaches (theme override, tags).
   try {
     playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, (request) => {
-      log('LOAD intercepted: ' + (request && request.media && request.media.contentId
-        ? request.media.contentId.slice(0, 60) : '(no contentId)'));
+      try {
+        // Capture the duration the SENDER declared before chunked playback overrides it with
+        // Infinity. Sanity-check units: anything over 10h is the Android sender's milliseconds
+        // leaking through unconverted -> treat as ms.
+        let d = request && request.media && request.media.duration;
+        if (isFinite(d) && d > 36000) d = d / 1000;
+        loadedDurationSec = (isFinite(d) && d > 0) ? d : 0;
+        log('LOAD intercepted: dur=' + loadedDurationSec.toFixed(1) + 's ' +
+          (request && request.media && request.media.contentId
+            ? request.media.contentId.slice(0, 48) : '(no contentId)'));
+      } catch (e) {}
       try {
         const cd = request && request.customData;
         if (cd && cd.themeSeed && Array.isArray(cd.themeSeed)) applyTheme(cd.themeSeed);
