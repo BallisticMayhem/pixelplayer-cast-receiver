@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v14 loaded');
+  log('receiver.js v15 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -516,6 +516,7 @@
   try {
     context.addCustomMessageListener(PIXELPLAYER_NAMESPACE, (event) => {
       const msg = event.data || {};
+      log('msg: ' + (msg.type || JSON.stringify(msg).slice(0, 60)));
       switch (msg.type) {
         case 'theme':
           if (msg.palette) applyPushedPalette(msg.palette);
