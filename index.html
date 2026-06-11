@@ -55,9 +55,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet" />
 
-  <!-- CAF receiver SDK. crossorigin=anonymous so window.onerror gets REAL error details from
-       exceptions inside this script instead of the masked "Script error." (gstatic serves CORS). -->
-  <script crossorigin="anonymous" src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <!-- CAF receiver SDK. NO crossorigin attribute: with it, the TV blocked the script outright
+       (CORS-mode fetch failed -> "CAF framework MISSING"), killing the whole receiver. The cost
+       is that uncaught framework-internal errors stay masked as "Script error." in the overlay. -->
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 
   <style>
     :root {
@@ -452,6 +453,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=18"></script>
+  <script src="receiver.js?v=19"></script>
 </body>
 </html>
