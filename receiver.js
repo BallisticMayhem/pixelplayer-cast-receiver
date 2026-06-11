@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v11 loaded');
+  log('receiver.js v12 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -286,7 +286,7 @@
 
   let lastCurTxt = '', lastDurTxt = '', lastPollLogMs = 0;
   let lastCurSeen = -1, lastCurChangeMs = 0;
-  let lastDrawMs = 0, lastDrawnProgress = -1;
+  let lastDrawnProgress = -1;
   function tick() {
     // Poll playback every frame. getPlayerState() is unreliable/laggy on this device (it read
     // PAUSED while audibly playing and vice versa), so "playing" is derived from whether the
@@ -320,16 +320,12 @@
         wave.progress = clamp(cur / dur, 0, 1);
       }
     } catch (e) { /* no media / not started yet */ }
-    // Canvas work capped at ~30fps, and skipped entirely while paused with nothing changed —
-    // a full 60fps redraw loop was a big part of the lag on the TV's weak GPU.
-    const drawNow = performance.now();
-    if (drawNow - lastDrawMs >= 33) {
-      if (wave.playing || wave.progress !== lastDrawnProgress) {
-        if (wave.playing) wave.phase += 0.24; // flow the wave (scaled for the 30fps cadence)
-        drawWave();
-        lastDrawnProgress = wave.progress;
-        lastDrawMs = drawNow;
-      }
+    // Full-rate (60fps) squiggle — affordable now that the blur(80px) blobs are gone (they were
+    // the real GPU hog). Still skips redraws entirely while paused with nothing changed.
+    if (wave.playing || wave.progress !== lastDrawnProgress) {
+      if (wave.playing) wave.phase += 0.12; // flow the wave while playing
+      drawWave();
+      lastDrawnProgress = wave.progress;
     }
     requestAnimationFrame(tick);
   }
