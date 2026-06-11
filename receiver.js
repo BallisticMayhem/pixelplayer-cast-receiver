@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v10 loaded');
+  log('receiver.js v11 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -256,7 +256,7 @@
     ctx.beginPath();
     ctx.strokeStyle = rgb(theme.primary);
     ctx.lineWidth = lineW;
-    for (let x = pad; x <= thumbX; x += 2) {
+    for (let x = pad; x <= thumbX; x += 3) {
       const distToThumb = thumbX - x;
       const amp = amplitude * clamp(distToThumb / taper, 0, 1); // flatten near the thumb (M3 style)
       const y = cy + Math.sin((x - pad) * k + wave.phase) * amp;
@@ -286,6 +286,7 @@
 
   let lastCurTxt = '', lastDurTxt = '', lastPollLogMs = 0;
   let lastCurSeen = -1, lastCurChangeMs = 0;
+  let lastDrawMs = 0, lastDrawnProgress = -1;
   function tick() {
     // Poll playback every frame. getPlayerState() is unreliable/laggy on this device (it read
     // PAUSED while audibly playing and vice versa), so "playing" is derived from whether the
@@ -319,8 +320,17 @@
         wave.progress = clamp(cur / dur, 0, 1);
       }
     } catch (e) { /* no media / not started yet */ }
-    if (wave.playing) wave.phase += 0.12; // flow the wave while playing
-    drawWave();
+    // Canvas work capped at ~30fps, and skipped entirely while paused with nothing changed —
+    // a full 60fps redraw loop was a big part of the lag on the TV's weak GPU.
+    const drawNow = performance.now();
+    if (drawNow - lastDrawMs >= 33) {
+      if (wave.playing || wave.progress !== lastDrawnProgress) {
+        if (wave.playing) wave.phase += 0.24; // flow the wave (scaled for the 30fps cadence)
+        drawWave();
+        lastDrawnProgress = wave.progress;
+        lastDrawMs = drawNow;
+      }
+    }
     requestAnimationFrame(tick);
   }
 

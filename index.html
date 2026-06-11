@@ -136,14 +136,15 @@
     .blob {
       position: absolute;
       border-radius: 50%;
-      filter: blur(80px);
-      opacity: 0.55;
+      opacity: 0.65;
       will-change: transform;
-      transition: background 900ms ease;
+      /* Soft edges come from a radial-gradient instead of filter: blur(80px) — giant blurred
+         layers are brutally expensive on the TV GPU and were the main source of lag. The blobs
+         are sized up a bit since the gradient fade eats into the visible radius. */
     }
-    #blob1 { width: 60vw; height: 60vw; left: -10vw; top: -18vw; background: var(--blob-a); animation: float1 11s ease-in-out infinite; }
-    #blob2 { width: 52vw; height: 52vw; right: -12vw; top: 8vh;  background: var(--blob-b); animation: float2 13s ease-in-out infinite; }
-    #blob3 { width: 46vw; height: 46vw; left: 22vw;  bottom: -20vw; background: var(--blob-c); animation: float3 15s ease-in-out infinite; }
+    #blob1 { width: 78vw; height: 78vw; left: -18vw; top: -26vw; background: radial-gradient(circle, var(--blob-a) 0%, transparent 65%); animation: float1 11s ease-in-out infinite; }
+    #blob2 { width: 68vw; height: 68vw; right: -20vw; top: 2vh;  background: radial-gradient(circle, var(--blob-b) 0%, transparent 65%); animation: float2 13s ease-in-out infinite; }
+    #blob3 { width: 62vw; height: 62vw; left: 16vw;  bottom: -28vw; background: radial-gradient(circle, var(--blob-c) 0%, transparent 65%); animation: float3 15s ease-in-out infinite; }
     @keyframes float1 {
       0%,100% { transform: translate(0,0) scale(1); }
       25% { transform: translate(18vw, 12vh) scale(1.18); }
@@ -326,6 +327,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=10"></script>
+  <script src="receiver.js?v=11"></script>
 </body>
 </html>
