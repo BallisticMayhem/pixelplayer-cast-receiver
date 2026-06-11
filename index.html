@@ -123,8 +123,49 @@
        hides them but only every 2s (they flashed); CSS applies the instant they're inserted.
        The universal rule hides ANY unexpected body child while allowlisting all of ours. */
     touch-controls { display: none !important; }
-    body > *:not(#debug):not(#bg):not(#scrim):not(#brand):not(#stage):not(#idle):not(cast-media-player):not(script) {
+    body > *:not(#debug):not(#bg):not(#scrim):not(#brand):not(#stage):not(#idle):not(#lyrics):not(cast-media-player):not(script) {
       display: none !important;
+    }
+
+    /* Fullscreen lyrics pushed from the phone — fades in over the stage; blobs stay as backdrop.
+       Layout: lyric lines fill the view, with a bottom strip (small art + Song/Artist on the left)
+       and the seekbar moved in at full width underneath. */
+    #lyrics {
+      position: absolute; inset: 0;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      padding: 4vh 6vw 3.5vh;
+      gap: 1.5vh;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 350ms ease;
+    }
+    body.lyrics-open #lyrics { opacity: 1; }
+    body.lyrics-open #stage { opacity: 0; }
+    #lyricsView {
+      flex: 1 1 auto;
+      overflow: hidden;
+      position: relative;
+    }
+    #lyricsScroll {
+      width: 100%;
+      transition: transform 420ms cubic-bezier(.2, .7, .2, 1);
+      will-change: transform;
+    }
+    .lyLine {
+      font-weight: 700;
+      font-size: clamp(22px, 4.6vh, 54px);
+      line-height: 1.25;
+      padding: 1.1vh 0;
+      color: var(--on-surface-dim);
+      opacity: 0.4;
+      transition: color 250ms ease, opacity 250ms ease;
+    }
+    .lyLine.active {
+      color: var(--primary);
+      opacity: 1;
     }
 
     /* Animated album-colored background. Explicit z-indexes on all our layers so framework-
@@ -183,6 +224,7 @@
       justify-content: center;
       gap: 6vw;
       padding: 7vh 8vw;
+      transition: opacity 350ms ease; /* fades out under the fullscreen lyrics */
     }
 
     #artWrap {
@@ -306,12 +348,47 @@
       color: var(--on-surface);
       opacity: 0.9;
     }
-    #brand .dot {
-      width: 1.4vh; height: 1.4vh; min-width: 12px; min-height: 12px;
-      border-radius: 4px;
-      background: var(--primary);
-      transition: background 900ms ease;
+    #brand img {
+      width: 3.2vh; height: 3.2vh; min-width: 22px; min-height: 22px;
+      border-radius: 24%;
     }
+
+    /* Lyrics-mode bottom strip: small art + Song/Artist bottom-left, full-width seekbar below. */
+    #lyBottom {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 1.4vh;
+      flex: 0 0 auto;
+    }
+    #lyMini {
+      display: flex;
+      align-items: center;
+      gap: 1.6vh;
+      align-self: flex-start;
+    }
+    #lyArt {
+      width: 8vh; height: 8vh;
+      border-radius: 14px;
+      object-fit: cover;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+      background: var(--surface);
+    }
+    #lyMeta { display: flex; flex-direction: column; min-width: 0; max-width: 60vw; }
+    #lyTitle {
+      font-weight: 700;
+      font-size: clamp(15px, 2.3vh, 26px);
+      color: var(--on-surface);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #lySub {
+      font-weight: 600;
+      font-size: clamp(12px, 1.8vh, 20px);
+      color: var(--on-surface-dim);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #lyProgressSlot { width: 100%; }
+    #lyProgressSlot #progress { margin-top: 0; }
 
     /* Idle (no media) state */
     #stage.idle #info, #stage.idle #artWrap { opacity: 0; }
@@ -339,7 +416,7 @@
   </div>
   <div id="scrim"></div>
 
-  <div id="brand"><span class="dot"></span><span>PixelPlayer</span></div>
+  <div id="brand"><img src="icon.png" alt="" /><span>PixelPlayer</span></div>
 
   <div id="stage" class="idle">
     <div id="artWrap"><img id="art" alt="" crossorigin="anonymous" decoding="async" fetchpriority="high" /></div>
@@ -354,6 +431,16 @@
       </div>
     </div>
   </div>
+  <div id="lyrics">
+    <div id="lyricsView"><div id="lyricsScroll"></div></div>
+    <div id="lyBottom">
+      <div id="lyMini">
+        <img id="lyArt" alt="" crossorigin="anonymous" />
+        <div id="lyMeta"><span id="lyTitle"></span><span id="lySub"></span></div>
+      </div>
+      <div id="lyProgressSlot"></div>
+    </div>
+  </div>
   <div id="idle">
     <span class="dot" style="width:18px;height:18px;border-radius:6px;background:var(--primary);display:inline-block"></span>
     <span>Ready to play</span>
@@ -361,6 +448,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=16"></script>
+  <script src="receiver.js?v=17"></script>
 </body>
 </html>

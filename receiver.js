@@ -25,7 +25,6 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v16 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -44,6 +43,13 @@
     dur: document.getElementById('dur'),
     wave: document.getElementById('wave'),
     songInfo: document.getElementById('songInfo'),
+    info: document.getElementById('info'),
+    progress: document.getElementById('progress'),
+    lyricsView: document.getElementById('lyricsView'),
+    lyProgressSlot: document.getElementById('lyProgressSlot'),
+    lyArt: document.getElementById('lyArt'),
+    lyTitle: document.getElementById('lyTitle'),
+    lySub: document.getElementById('lySub'),
   };
 
   // ---- Small helpers --------------------------------------------------------------------------
@@ -222,6 +228,8 @@
     if (!meta) return;
     el.title.textContent = meta.title || '';
     el.artist.textContent = meta.artist || '';
+    el.lyTitle.textContent = meta.title || '';
+    el.lySub.textContent = meta.artist || '';
     el.stage.classList.toggle('idle', !meta.title && !meta.art);
 
     if (meta.art && meta.art !== currentArtUrl) {
@@ -235,6 +243,7 @@
       probe.onload = () => {
         if (currentArtUrl !== url) return; // superseded by a newer track
         el.art.src = url; // same-cache fetch -> instant
+        el.lyArt.src = url; // lyrics-mode mini art mirrors the stage art
         el.artWrap.classList.remove('pop');
         void el.artWrap.offsetWidth; // restart the animation
         el.artWrap.classList.add('pop');
@@ -295,6 +304,86 @@
     if (!text) { el.badge.classList.remove('show'); return; }
     el.badge.textContent = text;
     el.badge.classList.add('show');
+  }
+
+  // ---- Fullscreen lyrics (pushed from the phone) ------------------------------------------------
+  // The phone sends {type:'lyrics', visible, offsetMs, synced:[{t,x}], plain:[...]} whenever its
+  // fullscreen lyrics open/close or the track's lyrics change. Synced lines are highlighted and
+  // centred from THIS device's playback clock (see tick()), so no position pushes are needed.
+  const lyr = {
+    layer: document.getElementById('lyrics'),
+    scroll: document.getElementById('lyricsScroll'),
+    lines: [],      // [{t, node}] for synced lyrics
+    activeIdx: -1,
+    offsetMs: 0,
+    visible: false,
+  };
+
+  function setLyrics(msg) {
+    try {
+      lyr.offsetMs = Number(msg.offsetMs) || 0;
+      const synced = Array.isArray(msg.synced) ? msg.synced : [];
+      const plain = Array.isArray(msg.plain) ? msg.plain : [];
+      lyr.activeIdx = -1;
+      lyr.lines = [];
+      lyr.scroll.textContent = '';
+      lyr.scroll.style.transform = 'translateY(0)';
+      const frag = document.createDocumentFragment();
+      if (synced.length) {
+        synced.forEach((l) => {
+          const div = document.createElement('div');
+          div.className = 'lyLine';
+          div.textContent = l.x || ' ';
+          frag.appendChild(div);
+          lyr.lines.push({ t: Number(l.t) || 0, node: div });
+        });
+      } else {
+        plain.forEach((x) => {
+          const div = document.createElement('div');
+          div.className = 'lyLine active'; // plain lyrics: everything readable, no highlight clock
+          div.textContent = x || ' ';
+          frag.appendChild(div);
+        });
+      }
+      lyr.scroll.appendChild(frag);
+      lyr.visible = !!msg.visible && (synced.length + plain.length) > 0;
+      document.body.classList.toggle('lyrics-open', lyr.visible);
+      // The seekbar (squiggle pill + times) moves between the stage and the lyrics bottom strip
+      // so it spans the full screen width under the lyrics. Same canvas keeps drawing; re-size
+      // it for the new width.
+      if (lyr.visible && el.progress.parentElement !== el.lyProgressSlot) {
+        el.lyProgressSlot.appendChild(el.progress);
+        sizeWave();
+      } else if (!lyr.visible && el.progress.parentElement !== el.info) {
+        el.info.appendChild(el.progress);
+        sizeWave();
+      }
+      // Mini now-playing (bottom-left): mirror the stage's art/title/artist.
+      if (el.art.src) el.lyArt.src = el.art.src;
+      el.lyTitle.textContent = el.title.textContent;
+      el.lySub.textContent = el.artist.textContent;
+    } catch (e) {}
+  }
+
+  function updateLyricsHighlight(curSec) {
+    if (!lyr.visible || !lyr.lines.length) return;
+    const ms = curSec * 1000 + lyr.offsetMs;
+    let idx = -1;
+    for (let i = 0; i < lyr.lines.length; i++) {
+      if (lyr.lines[i].t <= ms) idx = i; else break;
+    }
+    if (idx === lyr.activeIdx) return;
+    if (lyr.activeIdx >= 0 && lyr.lines[lyr.activeIdx]) {
+      lyr.lines[lyr.activeIdx].node.classList.remove('active');
+    }
+    lyr.activeIdx = idx;
+    if (idx >= 0) {
+      const node = lyr.lines[idx].node;
+      node.classList.add('active');
+      // Centre the active line vertically in the view (smooth via the CSS transform transition).
+      const y = el.lyricsView.clientHeight / 2 - node.offsetTop - node.offsetHeight / 2;
+      lyr.scroll.style.transform = 'translateY(' + y + 'px)';
+    }
   }
 
   // ---- Squiggle progress bar ------------------------------------------------------------------
@@ -371,7 +460,7 @@
   // playing — this captured value is the only reliable total. Set by the LOAD interceptor.
   let loadedDurationSec = 0;
 
-  let lastCurTxt = '', lastDurTxt = '', lastPollLogMs = 0;
+  let lastCurTxt = '', lastDurTxt = '';
   let lastCurSeen = -1, lastCurChangeMs = 0;
   let lastDrawnProgress = -1;
   function tick() {
@@ -385,6 +474,7 @@
       const moving = isFinite(cur) && cur > 0 && (nowMs - lastCurChangeMs) < 800;
       wave.playing = moving;
       el.artWrap.classList.toggle('paused', !moving && cur > 0);
+      updateLyricsHighlight(cur);
 
       let dur = playerManager.getDurationSec();
       if (!isFinite(dur) || dur <= 0) {
@@ -393,12 +483,6 @@
       }
       if ((!isFinite(dur) || dur <= 0) && loadedDurationSec > 0) dur = loadedDurationSec;
 
-      // TEMP diagnostic: live poll readout every ~4s.
-      if (nowMs - lastPollLogMs > 4000) {
-        lastPollLogMs = nowMs;
-        log('poll: moving=' + moving + ' cur=' + (isFinite(cur) ? cur.toFixed(1) : cur) +
-          ' dur=' + (isFinite(dur) ? dur.toFixed(1) : dur) + ' loadDur=' + loadedDurationSec.toFixed(1));
-      }
       const curTxt = fmtTime(cur);
       if (curTxt !== lastCurTxt) { lastCurTxt = curTxt; el.cur.textContent = curTxt; }
       if (isFinite(dur) && dur > 0) {
@@ -421,11 +505,9 @@
   }
 
   // ---- CAF wiring -----------------------------------------------------------------------------
-  log('CAF: ' + (typeof cast !== 'undefined' && cast.framework ? 'framework present' : 'MISSING'),
-    (typeof cast !== 'undefined' && cast.framework) ? null : 'err');
+  if (typeof cast === 'undefined' || !cast.framework) log('CAF framework MISSING', 'err');
   const context = cast.framework.CastReceiverContext.getInstance();
   const playerManager = context.getPlayerManager();
-  log('playerManager OK');
 
   // Surface any media-level error on screen (e.g. a load/network failure).
   try {
@@ -464,9 +546,6 @@
         loadedDurationSec = (isFinite(d) && d > 0) ? d : 0;
         pushedSongInfo = null;  // new track: stale pushed file-info no longer applies
         paletteForTrack = false; // new track: art extraction may colour until the palette push lands
-        log('LOAD intercepted: dur=' + loadedDurationSec.toFixed(1) + 's ' +
-          (request && request.media && request.media.contentId
-            ? request.media.contentId.slice(0, 48) : '(no contentId)'));
       } catch (e) {}
       try {
         const cd = request && request.customData;
@@ -502,10 +581,8 @@
     log('options failed (' + (e && e.message) + '), starting bare', 'err');
     options = undefined;
   }
-  log('calling context.start()');
   try {
     if (options) context.start(options); else context.start();
-    log('context.start() returned');
   } catch (e) {
     log('START FAILED: ' + (e && e.message), 'err');
   }
@@ -518,7 +595,6 @@
   try {
     context.addCustomMessageListener(PIXELPLAYER_NAMESPACE, (event) => {
       const msg = event.data || {};
-      log('msg: ' + (msg.type || JSON.stringify(msg).slice(0, 60)));
       switch (msg.type) {
         case 'theme':
           if (msg.palette) applyPushedPalette(msg.palette);
@@ -530,6 +606,9 @@
           if (pushedSongInfo) renderSongInfo(pushedSongInfo);
           break;
         }
+        case 'lyrics':
+          setLyrics(msg);
+          break;
         case 'badge':
           showBadge(msg.text || null);
           break;
@@ -538,7 +617,6 @@
           break;
       }
     });
-    log('custom channel ready');
   } catch (e) {
     log('custom listener failed: ' + (e && e.message), 'err');
   }
@@ -549,7 +627,7 @@
   // — the log doubles as diagnosis of what the framework actually injects on this device.
   // display:none on media elements does not stop audio, so this is safe for playback.
   try {
-    const allowedIds = new Set(['debug', 'bg', 'scrim', 'brand', 'stage', 'idle']);
+    const allowedIds = new Set(['debug', 'bg', 'scrim', 'brand', 'stage', 'idle', 'lyrics']);
     const sweep = () => {
       const children = document.body.children;
       for (let i = 0; i < children.length; i++) {
@@ -559,7 +637,6 @@
         if (allowedIds.has(n.id)) continue;
         if (n.style.display === 'none') continue; // already swept
         n.style.display = 'none';
-        log('hid injected <' + tag + (n.id ? '#' + n.id : '') + (n.className ? ' .' + n.className : '') + '>');
       }
     };
     sweep();
