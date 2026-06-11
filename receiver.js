@@ -25,7 +25,7 @@
   } catch (e) {}
   // Version marker: bump alongside the ?v= cache-buster in index.html so the on-TV overlay
   // proves which copy the (aggressively caching) cast platform actually loaded.
-  log('receiver.js v15 loaded');
+  log('receiver.js v16 loaded');
 
   // ---- Custom message channel (phone -> TV control) -------------------------------------------
   // Keep this in sync with the sender (the Android app) when we wire phone->TV control.
@@ -141,10 +141,11 @@
 
   const theme = { primary: NEUTRAL.seed, track: [120, 120, 130] };
 
-  // True once the phone has pushed its real Material You palette over the custom channel —
-  // from then on, art-based colour extraction stays off (the pushed palette is exact; the
-  // extraction is only an approximation for senders that don't push).
-  let paletteDriven = false;
+  // True once the phone has pushed its real Material You palette for the CURRENT track (reset on
+  // every LOAD). Art-based extraction runs first as the instant approximation — the phone's scheme
+  // computation arrives a beat later — and the exact pushed palette then corrects it; the flag
+  // stops a slow art load from overwriting a palette that already arrived.
+  let paletteForTrack = false;
 
   // Apply the EXACT palette the phone computed (matches its fullscreen-lyrics blob recipe:
   // blobs are primary/secondary/primaryContainer lerped slightly toward surface).
@@ -167,7 +168,7 @@
       setVar('--pill-fg', rgb(primary));
       theme.primary = primary;
       theme.track = mix(onSurface, surface, 0.5);
-      paletteDriven = true;
+      paletteForTrack = true;
     } catch (e) {}
   }
 
@@ -237,7 +238,7 @@
         el.artWrap.classList.remove('pop');
         void el.artWrap.offsetWidth; // restart the animation
         el.artWrap.classList.add('pop');
-        if (!paletteDriven) { // pushed phone palette is exact; extraction is the fallback
+        if (!paletteForTrack) { // instant approximation; the exact pushed palette corrects it
           const seed = extractSeedFromArt(probe);
           applyTheme(seed || NEUTRAL.seed);
         }
@@ -245,7 +246,7 @@
       probe.onerror = () => {
         if (currentArtUrl !== url) return;
         el.art.src = url;
-        if (!paletteDriven) applyTheme(NEUTRAL.seed);
+        if (!paletteForTrack) applyTheme(NEUTRAL.seed);
       };
       probe.src = url;
     }
@@ -461,7 +462,8 @@
         let d = request && request.media && request.media.duration;
         if (isFinite(d) && d > 36000) d = d / 1000;
         loadedDurationSec = (isFinite(d) && d > 0) ? d : 0;
-        pushedSongInfo = null; // new track: stale pushed file-info no longer applies
+        pushedSongInfo = null;  // new track: stale pushed file-info no longer applies
+        paletteForTrack = false; // new track: art extraction may colour until the palette push lands
         log('LOAD intercepted: dur=' + loadedDurationSec.toFixed(1) + 's ' +
           (request && request.media && request.media.contentId
             ? request.media.contentId.slice(0, 48) : '(no contentId)'));
