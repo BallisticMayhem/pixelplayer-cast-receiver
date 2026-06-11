@@ -34,13 +34,23 @@
           if (kind === 'err') line.style.color = '#ff8a8a';
           d.appendChild(line);
           while (d.childNodes.length > 16) d.removeChild(d.firstChild);
+          // Auto-hide: never park on screen forever (a fresh log restarts the timer).
+          clearTimeout(window.__ppLogHideT);
+          window.__ppLogHideT = setTimeout(function () {
+            d.style.display = 'none';
+            d.textContent = '';
+          }, 15000);
         } catch (e) {}
       };
       window.addEventListener('error', function (e) {
+        var msg = String(e.message || (e.error && e.error.message) || '');
         var stack = (e.error && e.error.stack)
           ? ' :: ' + String(e.error.stack).split('\n').slice(0, 2).join(' | ').slice(0, 220)
           : '';
-        window.__ppLog('ERR: ' + (e.message || (e.error && e.error.message) || e.error) +
+        // The masked cross-origin "Script error." (framework-internal, no details available)
+        // carries zero information — don't show it at all.
+        if (/^Script error\.?$/.test(msg) && !stack) return;
+        window.__ppLog('ERR: ' + msg +
           ' @ ' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '') + stack, 'err');
       });
       window.addEventListener('unhandledrejection', function (e) {
