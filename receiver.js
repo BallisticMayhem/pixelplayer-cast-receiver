@@ -594,6 +594,7 @@
   // JSON on PIXELPLAYER_NAMESPACE; we react here. No-op until the app sends messages.
   try {
     context.addCustomMessageListener(PIXELPLAYER_NAMESPACE, (event) => {
+      try {
       const msg = event.data || {};
       switch (msg.type) {
         case 'theme':
@@ -612,9 +613,11 @@
         case 'badge':
           showBadge(msg.text || null);
           break;
-        // case 'lyrics': // TODO(phone->TV lyrics): render msg.lines + msg.activeIndex overlay.
         default:
           break;
+      }
+      } catch (e) {
+        log('msg handler failed: ' + (e && e.message), 'err');
       }
     });
   } catch (e) {

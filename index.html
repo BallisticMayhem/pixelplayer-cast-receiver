@@ -37,8 +37,11 @@
         } catch (e) {}
       };
       window.addEventListener('error', function (e) {
+        var stack = (e.error && e.error.stack)
+          ? ' :: ' + String(e.error.stack).split('\n').slice(0, 2).join(' | ').slice(0, 220)
+          : '';
         window.__ppLog('ERR: ' + (e.message || (e.error && e.error.message) || e.error) +
-          ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), 'err');
+          ' @ ' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '') + stack, 'err');
       });
       window.addEventListener('unhandledrejection', function (e) {
         window.__ppLog('REJECT: ' + (e.reason && (e.reason.message || e.reason)), 'err');
@@ -52,8 +55,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet" />
 
-  <!-- CAF receiver SDK -->
-  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <!-- CAF receiver SDK. crossorigin=anonymous so window.onerror gets REAL error details from
+       exceptions inside this script instead of the masked "Script error." (gstatic serves CORS). -->
+  <script crossorigin="anonymous" src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 
   <style>
     :root {
@@ -448,6 +452,6 @@
 
   <!-- ?v= cache-buster: bump together with the "receiver.js vN loaded" log line whenever
        receiver.js changes — the cast platform caches scripts hard. -->
-  <script src="receiver.js?v=17"></script>
+  <script src="receiver.js?v=18"></script>
 </body>
 </html>
